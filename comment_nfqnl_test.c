@@ -8,6 +8,10 @@
 
 #include <libnetfilter_queue/libnetfilter_queue.h>
 
+struct host_name {
+	char name;
+};
+
 void dump(unsigned char* buf, int size) {
 	int i;
 	for (i = 0; i < size; i++) {
@@ -68,7 +72,7 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 	ret = nfq_get_payload(tb, &data);
 	if (ret >= 0) {
 		printf("payload_len=%d\n", ret);
-		//dump(data, ret);
+		dump(data, ret);
 	}
 	fputc('\n', stdout);
 
@@ -81,11 +85,6 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 {
 	u_int32_t id = print_pkt(nfa);
 	printf("entering callback\n");
-	
-	char** host_name = (char **)data; 
-	for (int i=0; i<4; i++) {
-		printf("%s\n", host_name[i]);
-	}
 	return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
 }
 
@@ -128,13 +127,21 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 	
-	char* host_name[argc];
-	for(int i=1; i<argc; i++) {
-		host_name[i-1] = argv[i];
+	struct host_name name;
+	// 메모리 동적 할당
+	points = (struct host_name*)malloc(argc * sizeof(struct host_name));
+	if (points == NULL) {
+		fprintf(stderr, "메모리 할당 실패\n");
+		exit(1);
 	}
 	
+	for (int i=0; i<argc; i++) {
+		points[i].name = argv[i];
+	}
+	
+	char* host = argv[];
 	printf("binding this socket to queue '0'\n");
-	qh = nfq_create_queue(h,  0, &cb, host_name);
+	qh = nfq_create_queue(h,  0, &cb, NULL);
 	if (!qh) {
 		fprintf(stderr, "error during nfq_create_queue()\n");
 		exit(1);
