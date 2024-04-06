@@ -64,28 +64,31 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 	ifi = nfq_get_physoutdev(tb);
 	if (ifi)
 		printf("physoutdev=%u ", ifi);
-
+	
 	ret = nfq_get_payload(tb, &data);
 	if (ret >= 0) {
 		printf("payload_len=%d\n", ret);
-		//dump(data, ret);
+		dump(data, ret);
 	}
+	
 	fputc('\n', stdout);
 
 	return id;
 }
 
 
+int num;
 static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 	      struct nfq_data *nfa, void *data)
 {
 	u_int32_t id = print_pkt(nfa);
 	printf("entering callback\n");
 	
-	char** host_name = (char **)data; 
-	for (int i=0; i<4; i++) {
-		printf("%s\n", host_name[i]);
+	char** host_name = (char**)data; 
+	for (int i=1; i<num; i++) {
+		printf("host: %s\n", host_name[i]);
 	}
+	
 	return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
 }
 
@@ -129,9 +132,10 @@ int main(int argc, char **argv)
 	}
 	
 	char* host_name[argc];
-	for(int i=1; i<argc; i++) {
-		host_name[i-1] = argv[i];
+	for(int i=0; i<argc; i++) {
+		host_name[i] = argv[i];
 	}
+	num = argc;
 	
 	printf("binding this socket to queue '0'\n");
 	qh = nfq_create_queue(h,  0, &cb, host_name);
