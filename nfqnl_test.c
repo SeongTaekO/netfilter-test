@@ -18,6 +18,7 @@ void dump(unsigned char* buf, int size) {
     printf("\n");
 }
 
+
 /* int callback_function(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfa, void *data)
  * qh: 큐의 핸들러. 콜백 함수가 어떤 큐에서 호출되었는지 식별하는데 사용
  * nfmsg: 네트워크 메시지에 관한 정보를 담고 있는 구조체
@@ -76,9 +77,17 @@ static int my_callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
     }
     printf("dport: %02x %02x\n", packet_data[22], packet_data[23]);
     
-    fputc('\n', stdout);
     printf("=======================\n");
     printf("entering callback\n");
+    fputc('\n', stdout);
+    
+    char** hex_value = (char**)data;
+    for(int i=0; i=4; i++) {
+        for(int j=0; hex_value[i][j]!='\0'; j++) {
+            printf("%02x", hex_value[i][j]);
+        }
+        printf("\n");
+    }
     
     if (packet_data[22]==0x00 && packet_data[23]==0x50) {
         printf("drop packet\n");
@@ -153,11 +162,50 @@ int main(int argc, char **argv)
         exit(1);
     }
 
+    /* char *host_name[argc];
+     * host_name은 포인터 배열이다. 각 포인터는 문자열을 가리키는 포인터이다.
+     * host_name[i] 는 문자열을 가리키는 포인터이며 해당 포인터가 가리키는 것은 문자열의 첫 번째 문자이다.
+     * host_name[i][j]에서 i는 문자열을 가리키는 포인터이고 j는 해당 문자열의 j번째 문자를 나타낸다.
+     * 이는 c언어에서 문자열을 포인터로 처리할 때 흔히 사용되는 방법이다. 문자열을 배열로 생각할 수 있지만, 사실상 문자열은 메모리에서 연속된 문자들의 시퀀스로 표현되므로 포인터를 사용해 각 문자에 직접 접근할 수 있다.
+     * 따라서 host_name[i][j]는 host_name[i]가 가리키는 문자열에서 j번째 문자를 의미한다. 이것이 가능한 이유는 host_name이 포인터 배열이고 각 포인터가 문자열을 가리키기 때문이다.
+     */
     char* host_name[argc];
+    char *hex_value[argc];
     for(int i=0; i<argc; i++) {
         host_name[i] = argv[i];
+        
+        // 문자열 길이를 구함
+        int len = 0;
+        while(host_name[i][len]) {
+            len++;
+        }
+        
+        hex_value[i] = (char*)malloc(len * sizeof(char));
+        if(hex_value[i]==NULL) {
+            fprintf(stderr, "Memory allocation failed\n");
+            exit(1);
+        }
+        
+        for(int j=0; j<len; j++) {
+            hex_value[i][j] = host_name[i][j];
+        }
     }
-
+    
+    for(int i=0; i<argc; i++) {
+        char *current_char = host_name[i];
+        
+        printf("%s: ", current_char);
+        /* host_name[i][j]!='\0'는 현재 처리 중인 문자열의 끝에 도달할 때까지 반복문을 실행하는 조건이다.
+         * c언어에서 문자열은 null 종단문자('\0' 또는 null character)로 끝난다. 이 null 종단 문자는 문자열의 끝을 표시한다.
+         * 따라서 host_name[i][j] != '\0' 조건은 현재 처리 중인 문자열의 문자가 null 종단 문자가 아닌 동안 반복문을 실행한다는 것을 의미합니다. 
+         */
+        for(int j=0; host_name[i][j]!='\0'; j++) {
+            printf("%02x ", hex_value[i][j]);
+        }
+        
+        printf("\n");
+    }
+    
     printf("binding this socket to queue '0'\n");
     /* struct nfq_q_handle *nfq_create_queue(struct nfq_handle *h, u_int16_t num, nfq_callback *cb, void *data);
      * 네트워크 패킷을 가로채기 위한 큐를 생성하고, 해당 큐에 대한 핸들러를 반환 받을 수 있다.
