@@ -5,6 +5,7 @@
 #include <linux/types.h>
 #include <linux/netfilter.h>		/* for NF_ACCEPT */
 #include <errno.h>
+#include <stdbool.h>
 
 #include <libnetfilter_queue/libnetfilter_queue.h>
 
@@ -18,7 +19,7 @@ void dump(unsigned char* buf, int size) {
     printf("\n");
 }
 
-
+int param_num = 0;
 /* int callback_function(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfa, void *data)
  * qh: 큐의 핸들러. 콜백 함수가 어떤 큐에서 호출되었는지 식별하는데 사용
  * nfmsg: 네트워크 메시지에 관한 정보를 담고 있는 구조체
@@ -34,6 +35,8 @@ static int my_callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
     u_int32_t mark, ifi;
     int ret;
     unsigned char *packet_data;
+    
+    printf("entering callback\n");
     
     ph = nfq_get_msg_packet_hdr(nfa);
     if (ph) {
@@ -61,7 +64,7 @@ static int my_callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
     
     ifi = nfq_get_outdev(nfa);
     if (ifi)
-        printf("outdev=%u", ifi);
+        printf("outdev=%u ", ifi);
     
     ifi = nfq_get_physindev(nfa);
     if (ifi)
@@ -75,26 +78,61 @@ static int my_callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
     if (ret >= 0) {
         printf("payload_len=%d\n", ret);
     }
-    printf("dport: %02x %02x\n", packet_data[22], packet_data[23]);
     
-    printf("=======================\n");
-    printf("entering callback\n");
     fputc('\n', stdout);
     
+    /* data는 nfq_create_queue() 함수에서 콜백 함수에 전달하기 위해 사용되는 사용자 정의 데이터이다.
+     * 그러나 이 데이터는 void*로 캐스팅되어 전달되므로 실제로 어떤 종류의 데이터인지를 명확히 알 수 없다.
+     * 따라서 사용자가 콜백 함수에서 이 데이터를 사용할 때 필요한 형태로 형변환해주어야 한다.
+     * data를 char** 타입으로 형변환하고, 이를 hex_value 포인터 배열에 저장했다.
+     * c언어에서 **는 포인터의 포인터를 나타낸다. 이것은 이중 포인터라고도 한다.
+     * 일반적으로 포인터는 메모리 주소를 가리키는 변수이다. 포인터의 값을 따라가면 해당 주소에 있는 데이터에 접근할 수 있다.
+     * 이중 포인터는 포인터 변수를 가리키는 포인터이다. 즉 이중 포인터는 포인터 변수의 주소를 저장하고 있다. 이렇게 되면 이중 포인터를 사용해 간접적으로 메모리에 접근할 수 있다.
+     * 이중 포인터를 사용하면 포인터의 배열이나 다차원 배열 등을 효과적으로 다룰 수 있다.
+     * nql_create_queue함수의 콜백 함수의 시그니처는 이미 정해져 있으며 이를 변경할 수 없다. data 매개변수는 void* 타입으로 정의되어 있다.
+     * 이것은 어떤 유형의 데이터도 전달할 수 있다는 것을 의미한다. 그러나 실제로 콜백 함수에서는 hex_value와 같은 특정 데이터를 사용해야 한다.
+     * 따라서 특정 데이터 타입을 콜백 함수에  전달하려면 void*로 형변환해야 한다. 그러나 이 데이터는 포인터 배열이므로 콜백 함수에서는 다시 캐스팅하여 사용해야 한다.
+     * 이것이 이중포인터를 사용하는 이유이다. 포인터의 포인터를 캐스팅하여 다시 원래의 형태로 되돌리기 위해서이다.
+     * 즉, void*로 형변환된 데이터를 이중 포인터로 다시 캐스팅함으로써 콜백 함수 내에서 hex_value 배열을 사용할 수 있게 된다.
+     */
     char** hex_value = (char**)data;
-    for(int i=0; hex_value[i][j]; i++) {
-        printf("%s: %02x", hex_value[i][j], hex_value[i][j]);
+    for (int i=1; i<param_num; i++) {
+        int len = strlen(hex_value[i]);
+        //for (int j=0; j<ret; j++) {
+        //    len++;
+        //}
+        
+        bool match = false;
+        bool port_match = false;
+        
+        //printf("blocked host list: ");
+        for(int j=0; j<(len<ret?len:ret); j++) {
+            //printf("%c", hex_value[i][j]);
+            if(packet_data[22]==0x00 && packet_data[23]==0x50) {    //대상 포트 번호
+                port_match = true;
+                printf("%s", packet_data+j);
+                if(memcmp(packet_data+j, hex_value[i], (len<ret?len:ret)) == 0) {
+                    match = true;
+                    break;
+                }
+            }
+        }
+        printf("\n");
+        
+        if(match && port_match) {
+            printf("port num = 80\n");
+            printf("\n");
+            printf("destination port: %02x %02x\n", packet_data[22], packet_data[23]);
+            printf("drop packet\n");
+            printf("=======================\n");
+            return nfq_set_verdict(qh, (u_int32_t)id, NF_DROP, 0, NULL);
+        }
     }
-    printf("\n");
-    
-    if (packet_data[22]==0x00 && packet_data[23]==0x50) {
-        printf("drop packet\n");
-        return nfq_set_verdict(qh, (u_int32_t)id, NF_DROP, 0, NULL);
-    }
-    else {
-        dump(packet_data, ret);
-        return nfq_set_verdict(qh, (u_int32_t)id, NF_ACCEPT, 0, NULL);
-    }
+
+    dump(packet_data, ret);
+    printf("destination port: %02x %02x\n", packet_data[22], packet_data[23]);
+    printf("=======================\n");
+    return nfq_set_verdict(qh, (u_int32_t)id, NF_ACCEPT, 0, NULL);
 }
 
 void usage() {
@@ -122,6 +160,8 @@ int main(int argc, char **argv)
      * 예로 x86 아키텍처에서는 대부분의 데이터 타입이 4 또는 8바이트 경계에 정렬되어 있어야 최적의 성능을 얻을 수 있다.
      */
     char buf[4096] __attribute__ ((aligned));
+    
+    param_num = argc;
 
     printf("opening library handle\n");
     /* libnetfilter_queue 라이브러리를 초기화하고 라이브러리 핸들러를 반환하는 함수이다.
