@@ -6,6 +6,8 @@
 #include <linux/netfilter.h>		/* for NF_ACCEPT */
 #include <errno.h>
 #include <stdbool.h>
+#include <pcre.h>
+#include <string.h>
 
 #include <libnetfilter_queue/libnetfilter_queue.h>
 
@@ -97,31 +99,37 @@ static int my_callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
      */
     char** hex_value = (char**)data;
     for (int i=1; i<param_num; i++) {
-        int len = strlen(hex_value[i]);
-        //for (int j=0; j<ret; j++) {
-        //    len++;
-        //}
-        
         bool match = false;
         bool port_match = false;
+        const char *pattern = hex_value[i];
+        const char *error;
+        int erroffset;
+        int rc;
+        pcre *re;
+        int ovector[30];
         
-        //printf("blocked host list: ");
-        for(int j=0; j<(len<ret?len:ret); j++) {
-            //printf("%c", hex_value[i][j]);
-            if(packet_data[22]==0x00 && packet_data[23]==0x50) {    //대상 포트 번호
-                port_match = true;
-                printf("%s", packet_data+j);
-                if(memcmp(packet_data+j, hex_value[i], (len<ret?len:ret)) == 0) {
-                    match = true;
-                    break;
-                }
-            }
+        re = pcre_compile(pattern, 0, &error, &erroffset, NULL);
+        if(re == NULL) {
+            printf("Error compiling regex: %s\n", error);
+            exit(1);
         }
-        printf("\n");
+        
+        rc = pcre_exec(re, NULL, packet_data, ret, 0, 0, ovector, 30);
+        
+        if(rc > 0 && ovector[1] - ovector[0] == strlen(pattern)) {
+            match = true;
+            printf("matched!\n");
+        }
+        else {
+            match = false;
+            printf("not matched!\n");
+        }
+        
+        if(packet_data[22]==0x00 && packet_data[23]==0x50) {
+            port_match = true;
+        }
         
         if(match && port_match) {
-            printf("port num = 80\n");
-            printf("\n");
             printf("destination port: %02x %02x\n", packet_data[22], packet_data[23]);
             printf("drop packet\n");
             printf("=======================\n");
@@ -130,6 +138,11 @@ static int my_callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
     }
 
     dump(packet_data, ret);
+    printf("host: ");
+    for(int i=0; i<ret; i++) {
+        printf("%c ", packet_data[i]);
+    }
+    printf("\n");
     printf("destination port: %02x %02x\n", packet_data[22], packet_data[23]);
     printf("=======================\n");
     return nfq_set_verdict(qh, (u_int32_t)id, NF_ACCEPT, 0, NULL);

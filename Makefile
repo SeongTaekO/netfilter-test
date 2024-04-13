@@ -1,4 +1,5 @@
 LDLIBS += -lnetfilter_queue
+LDLIBS += -lpcre
 
 all: nfqnl_test
 
